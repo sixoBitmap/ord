@@ -4135,6 +4135,39 @@ mod tests {
   }
 
   #[test]
+  fn output_of_transaction_with_anchor_outputs() {
+    let server = TestServer::new();
+
+    server.mine_blocks(1);
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, Default::default())],
+      outputs: 2,
+      recipient: Some(Address::from_script(&ScriptBuf::new_p2a(), Network::Bitcoin).unwrap()),
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let output = server.get_json::<api::Output>(format!("/output/{txid}:0"));
+
+    assert_eq!(output.script_pubkey, ScriptBuf::new_p2a());
+    assert!(!output.spent);
+
+    server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(2, 1, 0, Default::default())],
+      ..default()
+    });
+
+    server.mine_blocks(1);
+
+    let output = server.get_json::<api::Output>(format!("/output/{txid}:0"));
+
+    assert_eq!(output.script_pubkey, ScriptBuf::new_p2a());
+    assert!(output.spent);
+  }
+
+  #[test]
   fn null_output_receives_lost_sats() {
     let server = TestServer::builder().index_sats().build();
 

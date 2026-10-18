@@ -19,10 +19,7 @@ use {
   bitcoin::block::Header,
   bitcoincore_rpc::{
     Client,
-    json::{
-      GetBlockHeaderResult, GetBlockStatsResult, GetRawTransactionResult,
-      GetRawTransactionResultVout, GetRawTransactionResultVoutScriptPubKey, GetTxOutResult,
-    },
+    json::{GetBlockHeaderResult, GetBlockStatsResult},
   },
   chrono::SubsecRound,
   indicatif::{ProgressBar, ProgressStyle},
@@ -164,6 +161,26 @@ impl From<TableStats> for TableInfo {
 pub struct TransactionInfo {
   pub starting_block_count: u32,
   pub starting_timestamp: u128,
+}
+
+#[derive(Deserialize)]
+struct RawTransactionResult {
+  confirmations: Option<u32>,
+  hex: String,
+}
+
+#[derive(Deserialize)]
+struct ScriptPubKeyResult {
+  hex: ScriptBuf,
+}
+
+#[derive(Deserialize)]
+struct TxOutResult {
+  confirmations: u32,
+  #[serde(rename = "scriptPubKey")]
+  script_pubkey: ScriptPubKeyResult,
+  #[serde(with = "bitcoin::amount::serde::as_btc")]
+  value: Amount,
 }
 
 pub(crate) trait BitcoinCoreRpcResultExt<T> {
@@ -1743,9 +1760,9 @@ impl Index {
     &self,
     txid: &Txid,
     vout: u32,
-  ) -> Result<Option<GetTxOutResult>> {
+  ) -> Result<Option<(TxOut, u32)>> {
     if txid == &self.genesis_block_coinbase_txid {
-      let Some(output) = &self
+      let Some(output) = self
         .genesis_block_coinbase_transaction
         .output
         .get(vout.into_usize())
@@ -1753,71 +1770,48 @@ impl Index {
         return Ok(None);
       };
 
-      return Ok(Some(GetTxOutResult {
-        bestblock: self.block_hash(None)?.unwrap(),
-        coinbase: true,
-        confirmations: self.block_count()?,
-        script_pub_key: GetRawTransactionResultVoutScriptPubKey {
-          address: None,
-          addresses: Vec::new(),
-          asm: output.script_pubkey.to_asm_string(),
-          hex: output.script_pubkey.to_bytes(),
-          req_sigs: Some(1),
-          type_: Some(bitcoincore_rpc::json::ScriptPubkeyType::Pubkey),
-        },
-        value: output.value,
-      }));
+      return Ok(Some((output.clone(), self.block_count()?)));
     }
 
-    Ok(self.client.get_tx_out(txid, vout, Some(true))?)
+    Ok(
+      self
+        .client
+        .call::<Option<TxOutResult>>(
+          "gettxout",
+          &[txid.to_string().into(), vout.into(), true.into()],
+        )?
+        .map(|result| {
+          (
+            TxOut {
+              value: result.value,
+              script_pubkey: result.script_pubkey.hex,
+            },
+            result.confirmations,
+          )
+        }),
+    )
   }
 
-  pub fn get_transaction_info(&self, txid: &Txid) -> Result<Option<GetRawTransactionResult>> {
+  pub fn get_transaction_info(&self, txid: &Txid) -> Result<Option<(Transaction, Option<u32>)>> {
     if txid == &self.genesis_block_coinbase_txid {
-      let tx = &self.genesis_block_coinbase_transaction;
-
-      let block = bitcoin::blockdata::constants::genesis_block(self.settings.chain().network());
-      let time = block.header.time.into_usize();
-
-      return Ok(Some(GetRawTransactionResult {
-        in_active_chain: Some(true),
-        hex: consensus::encode::serialize(tx),
-        txid: tx.compute_txid(),
-        hash: tx.compute_wtxid(),
-        size: tx.total_size(),
-        vsize: tx.vsize(),
-        #[allow(clippy::cast_sign_loss)]
-        version: tx.version.0 as u32,
-        locktime: 0,
-        vin: Vec::new(),
-        vout: tx
-          .output
-          .iter()
-          .enumerate()
-          .map(|(n, output)| GetRawTransactionResultVout {
-            n: n.try_into().unwrap(),
-            value: output.value,
-            script_pub_key: GetRawTransactionResultVoutScriptPubKey {
-              asm: output.script_pubkey.to_asm_string(),
-              hex: output.script_pubkey.clone().into(),
-              req_sigs: None,
-              type_: None,
-              addresses: Vec::new(),
-              address: None,
-            },
-          })
-          .collect(),
-        blockhash: Some(block.block_hash()),
-        confirmations: Some(self.block_count()?),
-        time: Some(time),
-        blocktime: Some(time),
-      }));
+      return Ok(Some((
+        self.genesis_block_coinbase_transaction.clone(),
+        Some(self.block_count()?),
+      )));
     }
 
-    self
+    let Some(result) = self
       .client
-      .get_raw_transaction_info(txid, None)
-      .into_option()
+      .call::<RawTransactionResult>("getrawtransaction", &[txid.to_string().into(), true.into()])
+      .into_option()?
+    else {
+      return Ok(None);
+    };
+
+    Ok(Some((
+      consensus::encode::deserialize_hex(&result.hex)?,
+      result.confirmations,
+    )))
   }
 
   pub fn get_transaction(&self, txid: Txid) -> Result<Option<Transaction>> {
@@ -2656,28 +2650,30 @@ impl Index {
     } else {
       indexed = self.contains_output(&outpoint)?;
 
-      if let Some(result) = self.get_unspent_or_unconfirmed_output(&outpoint.txid, outpoint.vout)? {
-        confirmations = result.confirmations;
+      if let Some((output, output_confirmations)) =
+        self.get_unspent_or_unconfirmed_output(&outpoint.txid, outpoint.vout)?
+      {
+        confirmations = output_confirmations;
         spent = false;
-        txout = TxOut {
-          value: result.value,
-          script_pubkey: ScriptBuf::from_bytes(result.script_pub_key.hex),
-        };
+        txout = output;
       } else {
-        let Some(result) = self.get_transaction_info(&outpoint.txid)? else {
+        let Some((transaction, transaction_confirmations)) =
+          self.get_transaction_info(&outpoint.txid)?
+        else {
           return Ok(None);
         };
 
-        let Some(output) = result.vout.into_iter().nth(outpoint.vout.into_usize()) else {
+        let Some(output) = transaction
+          .output
+          .into_iter()
+          .nth(outpoint.vout.into_usize())
+        else {
           return Ok(None);
         };
 
-        confirmations = result.confirmations.unwrap_or_default();
+        confirmations = transaction_confirmations.unwrap_or_default();
         spent = true;
-        txout = TxOut {
-          value: output.value,
-          script_pubkey: ScriptBuf::from_bytes(output.script_pub_key.hex),
-        };
+        txout = output;
       }
     };
 
