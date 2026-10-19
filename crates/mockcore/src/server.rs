@@ -240,11 +240,17 @@ impl Api for Server {
     &self,
     txid: Txid,
     vout: u32,
-    _include_mempool: Option<bool>,
+    include_mempool: Option<bool>,
   ) -> Result<Option<Value>, jsonrpc_core::Error> {
     let state = self.state();
 
-    let Some(value) = state.utxos.get(&OutPoint { txid, vout }) else {
+    let outpoint = OutPoint { txid, vout };
+
+    if include_mempool.unwrap_or(true) && state.spending_transaction(outpoint).is_some() {
+      return Ok(None);
+    }
+
+    let Some(value) = state.utxos.get(&outpoint) else {
       return Ok(None);
     };
 
@@ -287,6 +293,31 @@ impl Api for Server {
     }
 
     Ok(Some(result))
+  }
+
+  fn get_tx_spending_prevout(
+    &self,
+    outputs: Vec<JsonOutPoint>,
+  ) -> Result<Vec<Value>, jsonrpc_core::Error> {
+    let state = self.state();
+
+    Ok(
+      outputs
+        .into_iter()
+        .map(|output| {
+          let mut result = serde_json::json!({ "txid": output.txid, "vout": output.vout });
+
+          if let Some(txid) = state.spending_transaction(OutPoint {
+            txid: output.txid,
+            vout: output.vout,
+          }) {
+            result["spendingtxid"] = txid.to_string().into();
+          }
+
+          result
+        })
+        .collect(),
+    )
   }
 
   fn get_wallet_info(&self) -> Result<GetWalletInfoResult, jsonrpc_core::Error> {

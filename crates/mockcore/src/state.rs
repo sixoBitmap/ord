@@ -300,6 +300,18 @@ impl State {
     &self.mempool
   }
 
+  pub(crate) fn spending_transaction(&self, outpoint: OutPoint) -> Option<Txid> {
+    self
+      .mempool
+      .iter()
+      .find(|tx| {
+        tx.input
+          .iter()
+          .any(|input| input.previous_output == outpoint)
+      })
+      .map(Transaction::compute_txid)
+  }
+
   pub(crate) fn get_confirmations(&self, tx: &Transaction) -> i32 {
     for (confirmations, hash) in self.hashes.iter().rev().enumerate() {
       if self.blocks.get(hash).unwrap().txdata.contains(tx) {

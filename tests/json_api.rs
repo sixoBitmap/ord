@@ -477,6 +477,7 @@ fn get_output() {
         InscriptionId { txid, index: 2 },
       ]),
       indexed: true,
+      pending_spend: None,
       runes: None,
       sat_ranges: Some(vec![
         (5000000000, 10000000000,),
@@ -883,6 +884,7 @@ fn outputs_address() {
         vout: 0
       },
       indexed: true,
+      pending_spend: None,
       runes: Some(BTreeMap::new()),
       sat_ranges: None,
       script_pubkey: ScriptBuf::from(
@@ -928,6 +930,7 @@ fn outputs_address() {
         vout: 0
       },
       indexed: true,
+      pending_spend: None,
       runes: Some(expected_runes),
       sat_ranges: None,
       script_pubkey: ScriptBuf::from(
@@ -963,6 +966,7 @@ fn outputs_address() {
         vout: 0
       },
       indexed: true,
+      pending_spend: None,
       runes: Some(BTreeMap::new()),
       sat_ranges: None,
       script_pubkey: ScriptBuf::from(

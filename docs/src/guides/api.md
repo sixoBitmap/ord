@@ -1962,7 +1962,9 @@ curl -s -H "Accept: application/json" http://0.0.0.0/offers
 
 ### Description
 
-Returns information about a UTXO, including inscriptions within it.
+Returns information about a UTXO, including inscriptions within it. If the
+output is spent by a transaction in the mempool, `pending_spend` is that
+transaction's ID.
 
 ### Example
 
@@ -1978,6 +1980,7 @@ curl -s -H "Accept: application/json" \
   "indexed": false,
   "inscriptions": [],
   "outpoint": "bc4c30829a9564c0d58e6287195622b53ced54a25711d1b86be7cd3a70ef61ed:0",
+  "pending_spend": null,
   "runes": {},
   "sat_ranges": null,
   "script_pubkey": "OP_PUSHNUM_1 OP_PUSHBYTES_32 156cc4878306157720607cdcb4b32afa4cc6853868458d7258b907112e5a434b",
@@ -2015,6 +2018,7 @@ curl -s -X POST \
     "indexed": false,
     "inscriptions": [],
     "outpoint": "bc4c30829a9564c0d58e6287195622b53ced54a25711d1b86be7cd3a70ef61ed:0",
+    "pending_spend": null,
     "runes": {},
     "sat_ranges": null,
     "script_pubkey": "OP_PUSHNUM_1 OP_PUSHBYTES_32 156cc4878306157720607cdcb4b32afa4cc6853868458d7258b907112e5a434b",
@@ -2027,6 +2031,7 @@ curl -s -X POST \
     "indexed": false,
     "inscriptions": [],
     "outpoint": "bc4c30829a9564c0d58e6287195622b53ced54a25711d1b86be7cd3a70ef61ed:1",
+    "pending_spend": null,
     "runes": {},
     "sat_ranges": null,
     "script_pubkey": "5120b61586cf7a3647b5a982320ae76383a04680ff41dc2264948d593a6a0660821c",
@@ -2073,6 +2078,7 @@ curl -s -H "Accept: application/json" \
     "indexed": true,
     "inscriptions": [],
     "outpoint": "6737d77ee9fba5f37e5f4128b03479209030bf44f78ffa3f4e94bf9783691b00:0",
+    "pending_spend": null,
     "runes": {},
     "sat_ranges": [
       [
@@ -2106,6 +2112,7 @@ curl -s -H "Accept: application/json" \
     "indexed": true,
     "inscriptions": [],
     "outpoint": "0cfa3e55f14812c119e47936d95abbb4e04f3094f6d86ac16c6e10018b0b2900:0",
+    "pending_spend": null,
     "runes": {},
     "sat_ranges": [
       [

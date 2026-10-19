@@ -48,6 +48,12 @@ pub trait Api {
     include_mempool: Option<bool>,
   ) -> Result<Option<Value>, jsonrpc_core::Error>;
 
+  #[rpc(name = "gettxspendingprevout")]
+  fn get_tx_spending_prevout(
+    &self,
+    outputs: Vec<JsonOutPoint>,
+  ) -> Result<Vec<Value>, jsonrpc_core::Error>;
+
   #[rpc(name = "getwalletinfo")]
   fn get_wallet_info(&self) -> Result<GetWalletInfoResult, jsonrpc_core::Error>;
 

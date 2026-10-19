@@ -2583,6 +2583,7 @@ impl Index {
 
     let confirmations;
     let indexed;
+    let pending_spend;
     let spent;
     let txout;
 
@@ -2597,6 +2598,7 @@ impl Index {
 
       confirmations = 0;
       indexed = true;
+      pending_spend = None;
       spent = false;
       txout = TxOut {
         value: Amount::from_sat(value),
@@ -2609,6 +2611,7 @@ impl Index {
         self.get_unspent_or_unconfirmed_output(outpoint)?
       {
         confirmations = output_confirmations;
+        pending_spend = None;
         spent = false;
         txout = output;
       } else {
@@ -2627,6 +2630,7 @@ impl Index {
         };
 
         confirmations = transaction_confirmations.unwrap_or_default();
+        pending_spend = self.client.get_tx_spending_prevout_ext(outpoint)?;
         spent = true;
         txout = output;
       }
@@ -2642,6 +2646,7 @@ impl Index {
         confirmations,
         inscriptions,
         outpoint,
+        pending_spend,
         txout.clone(),
         indexed,
         runes,

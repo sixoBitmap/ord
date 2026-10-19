@@ -33,6 +33,9 @@
   <dt>transaction</dt><dd><a class=collapse href=/tx/{{ self.outpoint.txid }}>{{ self.outpoint.txid }}</a></dd>
   <dt>confirmations</dt><dd>{{ self.confirmations }}</dd>
   <dt>spent</dt><dd>{{ self.spent }}</dd>
+%% if let Some(txid) = self.pending_spend {
+  <dt>pending spend</dt><dd><a class=collapse href=/tx/{{ txid }}>{{ txid }}</a></dd>
+%% }
 </dl>
 %% if let Some(sat_ranges) = &self.sat_ranges {
 <h2>{{"Sat Range".tally(sat_ranges.len())}}</h2>

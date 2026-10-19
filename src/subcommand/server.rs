@@ -853,6 +853,7 @@ impl Server {
           inscriptions: output_info.inscriptions,
           outpoint,
           output: txout,
+          pending_spend: output_info.pending_spend,
           runes: output_info.runes,
           sat_ranges: output_info.sat_ranges,
           spent: output_info.spent,
@@ -3821,6 +3822,7 @@ mod tests {
         indexed: true,
         inscriptions: Some(Vec::new()),
         outpoint: output,
+        pending_spend: None,
         runes: Some(
           vec![(
             SpacedRune {
@@ -4113,6 +4115,45 @@ mod tests {
 </ul>.*"
         ),
       );
+  }
+
+  #[test]
+  fn output_spent_in_mempool_has_pending_spend() {
+    let server = TestServer::new();
+
+    server.mine_blocks(1);
+
+    let outpoint = OutPoint::new(server.core.tx(1, 0).compute_txid(), 0);
+
+    assert_eq!(
+      server
+        .get_json::<api::Output>(format!("/output/{outpoint}"))
+        .pending_spend,
+      None,
+    );
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, Default::default())],
+      ..default()
+    });
+
+    let output = server.get_json::<api::Output>(format!("/output/{outpoint}"));
+
+    assert!(output.spent);
+    assert_eq!(output.pending_spend, Some(txid));
+
+    server.assert_response_regex(
+      format!("/output/{outpoint}"),
+      StatusCode::OK,
+      format!(".*<dt>pending spend</dt><dd><a class=collapse href=/tx/{txid}>{txid}</a></dd>.*"),
+    );
+
+    server.mine_blocks(1);
+
+    let output = server.get_json::<api::Output>(format!("/output/{outpoint}"));
+
+    assert!(output.spent);
+    assert_eq!(output.pending_spend, None);
   }
 
   #[test]
