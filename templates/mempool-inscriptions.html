@@ -1,0 +1,31 @@
+<h1>Mempool Inscriptions</h1>
+<table class=mempool-inscriptions>
+  <tr>
+    <th>inscription</th>
+    <th>content type</th>
+    <th>size</th>
+    <th>fee rate</th>
+    <th>age</th>
+  </tr>
+%% for inscription in &self.inscriptions {
+  <tr>
+    <td><a class=collapse href=/tx/{{ inscription.id.txid }}>{{ inscription.id }}</a></td>
+    <td>{{ inscription.content_type.as_deref().unwrap_or_default() }}</td>
+    <td>{{ inscription.content_length.unwrap_or_default() }}</td>
+    <td>{{ format!("{:.1}", inscription.fee_rate) }} sat/vB</td>
+    <td>{{ self.age(inscription) }}</td>
+  </tr>
+%% }
+</table>
+<div class=center>
+%% if let Some(prev) = self.prev {
+<a class=prev href=/mempool/inscriptions/{{prev}}>prev</a>
+%% } else {
+prev
+%% }
+%% if let Some(next) = self.next {
+<a class=next href=/mempool/inscriptions/{{next}}>next</a>
+%% } else {
+next
+%% }
+</div>

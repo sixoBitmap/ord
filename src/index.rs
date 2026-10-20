@@ -6,6 +6,7 @@ use {
     },
     event::Event,
     lot::Lot,
+    mempool::Mempool,
     reorg::Reorg,
     updater::Updater,
     utxo_entry::{ParsedUtxoEntry, UtxoEntry, UtxoEntryBuf},
@@ -42,6 +43,7 @@ pub(crate) mod entry;
 pub mod event;
 mod fetcher;
 mod lot;
+mod mempool;
 mod reorg;
 mod rtx;
 mod updater;
@@ -208,6 +210,7 @@ pub struct Index {
   index_runes: bool,
   index_sats: bool,
   index_transactions: bool,
+  mempool: Option<Mempool>,
   path: PathBuf,
   settings: Settings,
   started: DateTime<Utc>,
@@ -468,6 +471,7 @@ impl Index {
       index_sats,
       index_transactions,
       index_inscriptions,
+      mempool: settings.index_mempool().then(Mempool::default),
       settings: settings.clone(),
       path,
       started: Utc::now(),
@@ -517,6 +521,10 @@ impl Index {
     self.index_inscriptions
   }
 
+  pub fn has_mempool_index(&self) -> bool {
+    self.mempool.is_some()
+  }
+
   pub fn has_rune_index(&self) -> bool {
     self.index_runes
   }
@@ -563,6 +571,7 @@ impl Index {
       inscriptions: blessed_inscriptions + cursed_inscriptions,
       json_api,
       lost_sats: statistic(Statistic::LostSats)?,
+      mempool_index: self.has_mempool_index(),
       minimum_rune_for_next_block: Rune::minimum_at_height(
         self.settings.chain().network(),
         Height(next_height),
@@ -1993,6 +2002,30 @@ impl Index {
       )
       .context("timestamp out of range")?,
     ))
+  }
+
+  pub fn update_mempool(&self) -> Result {
+    if let Some(mempool) = &self.mempool {
+      mempool.update(&self.client)?;
+    }
+
+    Ok(())
+  }
+
+  pub fn get_mempool_inscriptions_paginated(
+    &self,
+    page_size: u32,
+    page_index: u32,
+  ) -> Result<(Vec<api::MempoolInscription>, bool)> {
+    Ok(
+      self
+        .mempool
+        .as_ref()
+        .map(|mempool| {
+          mempool.inscriptions_paginated(page_size.into_usize(), page_index.into_usize())
+        })
+        .unwrap_or_default(),
+    )
   }
 
   pub fn get_inscriptions_paginated(
@@ -7034,5 +7067,252 @@ mod tests {
         Vec::<InscriptionId>::new(),
       );
     }
+  }
+
+  #[test]
+  fn mempool_index_is_off_by_default() {
+    let context = Context::builder().build();
+
+    context.mine_blocks(1);
+
+    context.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription("text/plain", "foo").to_witness())],
+      ..default()
+    });
+
+    context.index.update_mempool().unwrap();
+
+    assert!(!context.index.has_mempool_index());
+    assert_eq!(
+      context
+        .index
+        .get_mempool_inscriptions_paginated(100, 0)
+        .unwrap(),
+      (Vec::new(), false)
+    );
+  }
+
+  #[test]
+  fn mempool_inscriptions() {
+    let context = Context::builder().arg("--index-mempool").build();
+
+    context.mine_blocks(1);
+
+    let txid = context.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(
+        1,
+        0,
+        0,
+        Inscription {
+          content_type: Some("text/plain".into()),
+          body: Some("840000.bitmap".into()),
+          metaprotocol: Some("bitmap".into()),
+          ..default()
+        }
+        .to_witness(),
+      )],
+      fee: 1000,
+      ..default()
+    });
+
+    let vsize = context.core.mempool()[0].vsize();
+
+    context.index.update_mempool().unwrap();
+
+    pretty_assert_eq!(
+      context
+        .index
+        .get_mempool_inscriptions_paginated(100, 0)
+        .unwrap(),
+      (
+        vec![api::MempoolInscription {
+          content_encoding: None,
+          content_length: Some(13),
+          content_type: Some("text/plain".into()),
+          delegate: None,
+          fee: 1000,
+          fee_rate: 1000.0 / vsize as f64,
+          id: InscriptionId { txid, index: 0 },
+          metaprotocol: Some("bitmap".into()),
+          parents: Vec::new(),
+          timestamp: 0,
+        }],
+        false
+      )
+    );
+
+    context.mine_blocks(1);
+
+    context.index.update_mempool().unwrap();
+
+    assert_eq!(
+      context
+        .index
+        .get_mempool_inscriptions_paginated(100, 0)
+        .unwrap(),
+      (Vec::new(), false)
+    );
+  }
+
+  #[test]
+  fn mempool_inscriptions_share_the_transaction_fee() {
+    let context = Context::builder().arg("--index-mempool").build();
+
+    context.mine_blocks(2);
+
+    let txid = context.core.broadcast_tx(TransactionTemplate {
+      inputs: &[
+        (1, 0, 0, inscription("text/plain", "foo").to_witness()),
+        (2, 0, 0, inscription("text/plain", "bar").to_witness()),
+      ],
+      fee: 1000,
+      ..default()
+    });
+
+    context.index.update_mempool().unwrap();
+
+    let (inscriptions, _) = context
+      .index
+      .get_mempool_inscriptions_paginated(100, 0)
+      .unwrap();
+
+    assert_eq!(
+      inscriptions
+        .iter()
+        .map(|inscription| (inscription.id, inscription.fee))
+        .collect::<Vec<(InscriptionId, u64)>>(),
+      [
+        (InscriptionId { txid, index: 0 }, 500),
+        (InscriptionId { txid, index: 1 }, 500),
+      ]
+    );
+
+    context.mine_blocks(1);
+
+    for index in 0..2 {
+      assert!(
+        context
+          .index
+          .get_inscription_entry(InscriptionId { txid, index })
+          .unwrap()
+          .is_some()
+      );
+    }
+  }
+
+  #[test]
+  fn mempool_inscriptions_are_paginated_newest_first() {
+    let context = Context::builder().arg("--index-mempool").build();
+
+    context.mine_blocks(3);
+
+    let ids = (1..=3)
+      .map(|height| InscriptionId {
+        txid: context.core.broadcast_tx(TransactionTemplate {
+          inputs: &[(height, 0, 0, inscription("text/plain", "foo").to_witness())],
+          ..default()
+        }),
+        index: 0,
+      })
+      .collect::<Vec<InscriptionId>>();
+
+    context.index.update_mempool().unwrap();
+
+    let page = |page_index| {
+      let (inscriptions, more) = context
+        .index
+        .get_mempool_inscriptions_paginated(2, page_index)
+        .unwrap();
+
+      (
+        inscriptions
+          .into_iter()
+          .map(|inscription| inscription.id)
+          .collect::<Vec<InscriptionId>>(),
+        more,
+      )
+    };
+
+    assert_eq!(page(0), (vec![ids[2], ids[1]], true));
+    assert_eq!(page(1), (vec![ids[0]], false));
+    assert_eq!(page(2), (Vec::new(), false));
+  }
+
+  #[test]
+  fn mempool_inscriptions_leave_with_their_transaction() {
+    let context = Context::builder().arg("--index-mempool").build();
+
+    context.mine_blocks(1);
+
+    context.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(1, 0, 0, inscription("text/plain", "foo").to_witness())],
+      ..default()
+    });
+
+    context.index.update_mempool().unwrap();
+
+    assert_eq!(
+      context
+        .index
+        .get_mempool_inscriptions_paginated(100, 0)
+        .unwrap()
+        .0
+        .len(),
+      1
+    );
+
+    context.core.state().mempool.clear();
+
+    context.index.update_mempool().unwrap();
+
+    assert_eq!(
+      context
+        .index
+        .get_mempool_inscriptions_paginated(100, 0)
+        .unwrap(),
+      (Vec::new(), false)
+    );
+  }
+
+  #[test]
+  fn mempool_inscription_fields_are_bounded() {
+    let context = Context::builder().arg("--index-mempool").build();
+
+    context.mine_blocks(1);
+
+    context.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(
+        1,
+        0,
+        0,
+        Inscription {
+          content_type: Some("a".repeat(1000).into_bytes()),
+          metaprotocol: Some("b".repeat(1000).into_bytes()),
+          parents: (0..6)
+            .map(|index| {
+              InscriptionId {
+                txid: Txid::all_zeros(),
+                index,
+              }
+              .value()
+            })
+            .collect(),
+          ..default()
+        }
+        .to_witness(),
+      )],
+      ..default()
+    });
+
+    context.index.update_mempool().unwrap();
+
+    let (inscriptions, _) = context
+      .index
+      .get_mempool_inscriptions_paginated(100, 0)
+      .unwrap();
+
+    assert_eq!(inscriptions[0].content_type, Some("a".repeat(128)));
+    assert_eq!(inscriptions[0].metaprotocol, Some("b".repeat(128)));
+    assert_eq!(inscriptions[0].parents.len(), 4);
   }
 }

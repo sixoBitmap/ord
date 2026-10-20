@@ -15,6 +15,7 @@ pub(crate) use {
   input::InputHtml,
   inscriptions::InscriptionsHtml,
   inscriptions_block::InscriptionsBlockHtml,
+  mempool_inscriptions::MempoolInscriptionsHtml,
   metadata::MetadataHtml,
   output::OutputHtml,
   parents::ParentsHtml,
@@ -49,6 +50,7 @@ pub mod inscription;
 pub mod inscriptions;
 mod inscriptions_block;
 mod item;
+mod mempool_inscriptions;
 mod metadata;
 pub mod output;
 mod parents;

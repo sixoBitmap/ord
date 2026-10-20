@@ -21,6 +21,7 @@ pub struct Settings {
   index: Option<PathBuf>,
   index_addresses: bool,
   index_cache_size: Option<usize>,
+  index_mempool: bool,
   index_runes: bool,
   index_sats: bool,
   index_transactions: bool,
@@ -137,6 +138,7 @@ impl Settings {
       index: self.index.or(source.index),
       index_addresses: self.index_addresses || source.index_addresses,
       index_cache_size: self.index_cache_size.or(source.index_cache_size),
+      index_mempool: self.index_mempool || source.index_mempool,
       index_runes: self.index_runes || source.index_runes,
       index_sats: self.index_sats || source.index_sats,
       index_transactions: self.index_transactions || source.index_transactions,
@@ -176,6 +178,7 @@ impl Settings {
       index: options.index,
       index_addresses: options.index_addresses,
       index_cache_size: options.index_cache_size,
+      index_mempool: options.index_mempool,
       index_runes: options.index_runes,
       index_sats: options.index_sats,
       index_transactions: options.index_transactions,
@@ -267,6 +270,7 @@ impl Settings {
       index: get_path("INDEX"),
       index_addresses: get_bool("INDEX_ADDRESSES"),
       index_cache_size: get_usize("INDEX_CACHE_SIZE")?,
+      index_mempool: get_bool("INDEX_MEMPOOL"),
       index_runes: get_bool("INDEX_RUNES"),
       index_sats: get_bool("INDEX_SATS"),
       index_transactions: get_bool("INDEX_TRANSACTIONS"),
@@ -300,6 +304,7 @@ impl Settings {
       index: None,
       index_addresses: true,
       index_cache_size: None,
+      index_mempool: false,
       index_runes: true,
       index_sats: true,
       index_transactions: false,
@@ -377,6 +382,7 @@ impl Settings {
           usize::try_from(sys.total_memory() / 4)?
         }
       }),
+      index_mempool: self.index_mempool,
       index_runes: self.index_runes,
       index_sats: self.index_sats,
       index_transactions: self.index_transactions,
@@ -568,6 +574,10 @@ impl Settings {
 
   pub fn index_inscriptions_raw(&self) -> bool {
     !self.no_index_inscriptions
+  }
+
+  pub fn index_mempool(&self) -> bool {
+    self.index_mempool
   }
 
   pub fn index_runes_raw(&self) -> bool {
@@ -997,6 +1007,12 @@ mod tests {
   }
 
   #[test]
+  fn index_mempool() {
+    assert!(parse(&["--index-mempool"]).index_mempool());
+    assert!(!parse(&[]).index_mempool());
+  }
+
+  #[test]
   fn index_runes() {
     assert!(parse(&["--chain=signet", "--index-runes"]).index_runes_raw());
     assert!(parse(&["--index-runes"]).index_runes_raw());
@@ -1106,6 +1122,7 @@ mod tests {
       ("INDEX", "index"),
       ("INDEX_ADDRESSES", "1"),
       ("INDEX_CACHE_SIZE", "4"),
+      ("INDEX_MEMPOOL", "1"),
       ("INDEX_RUNES", "1"),
       ("INDEX_SATS", "1"),
       ("INDEX_TRANSACTIONS", "1"),
@@ -1155,6 +1172,7 @@ mod tests {
         index: Some("index".into()),
         index_addresses: true,
         index_cache_size: Some(4),
+        index_mempool: true,
         index_runes: true,
         index_sats: true,
         index_transactions: true,
@@ -1189,6 +1207,7 @@ mod tests {
           "--height-limit=3",
           "--index-addresses",
           "--index-cache-size=4",
+          "--index-mempool",
           "--index-runes",
           "--index-sats",
           "--index-transactions",
@@ -1221,6 +1240,7 @@ mod tests {
         index: Some("index".into()),
         index_addresses: true,
         index_cache_size: Some(4),
+        index_mempool: true,
         index_runes: true,
         index_sats: true,
         index_transactions: true,

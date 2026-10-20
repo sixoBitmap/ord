@@ -8,10 +8,10 @@ use {
   crate::templates::{
     AddressHtml, BlockHtml, BlocksHtml, ChildrenHtml, ClockSvg, CollectionsHtml, GalleriesHtml,
     GalleryHtml, HomeHtml, InputHtml, InscriptionHtml, InscriptionsBlockHtml, InscriptionsHtml,
-    ItemHtml, OutputHtml, PageContent, PageHtml, ParentsHtml, PreviewAudioHtml, PreviewCodeHtml,
-    PreviewFontHtml, PreviewImageHtml, PreviewMarkdownHtml, PreviewModelHtml, PreviewPdfHtml,
-    PreviewTextHtml, PreviewUnknownHtml, PreviewVideoHtml, RareTxt, RuneHtml, RuneNotFoundHtml,
-    RunesHtml, SatHtml, SatscardHtml, TransactionHtml,
+    ItemHtml, MempoolInscriptionsHtml, OutputHtml, PageContent, PageHtml, ParentsHtml,
+    PreviewAudioHtml, PreviewCodeHtml, PreviewFontHtml, PreviewImageHtml, PreviewMarkdownHtml,
+    PreviewModelHtml, PreviewPdfHtml, PreviewTextHtml, PreviewUnknownHtml, PreviewVideoHtml,
+    RareTxt, RuneHtml, RuneNotFoundHtml, RunesHtml, SatHtml, SatscardHtml, TransactionHtml,
   },
   axum::{
     Router,
@@ -189,6 +189,26 @@ impl Server {
 
       INDEXER.lock().unwrap().replace(index_thread);
 
+      if index.has_mempool_index() {
+        let index = index.clone();
+
+        let interval = if integration_test {
+          Duration::from_millis(100)
+        } else {
+          self.polling_interval.into()
+        };
+
+        thread::spawn(move || {
+          while !SHUTTING_DOWN.load(atomic::Ordering::Relaxed) {
+            if let Err(error) = index.update_mempool() {
+              log::warn!("Updating mempool: {error}");
+            }
+
+            thread::sleep(interval);
+          }
+        });
+      }
+
       let settings = Arc::new(settings);
       let acme_domains = self.acme_domains()?;
 
@@ -259,6 +279,11 @@ impl Server {
         )
         .route("/inscriptions/{page}", get(Self::inscriptions_paginated))
         .route("/install.sh", get(Self::install_script))
+        .route("/mempool/inscriptions", get(Self::mempool_inscriptions))
+        .route(
+          "/mempool/inscriptions/{page}",
+          get(Self::mempool_inscriptions_paginated),
+        )
         .route("/missing", post(Self::missing).layer(body_limit))
         .route("/offer", post(Self::offer))
         .route("/offers", get(Self::offers))
@@ -1162,6 +1187,55 @@ impl Server {
         BlocksHtml::new(blocks, featured_blocks)
           .page(server_config)
           .into_response()
+      })
+    })
+  }
+
+  async fn mempool_inscriptions(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    accept_json: AcceptJson,
+  ) -> ServerResult {
+    Self::mempool_inscriptions_paginated(
+      Extension(server_config),
+      Extension(index),
+      Path(0),
+      accept_json,
+    )
+    .await
+  }
+
+  async fn mempool_inscriptions_paginated(
+    Extension(server_config): Extension<Arc<ServerConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(page_index): Path<u32>,
+    AcceptJson(accept_json): AcceptJson,
+  ) -> ServerResult {
+    task::block_in_place(|| {
+      if !index.has_mempool_index() {
+        return Err(ServerError::NotFound(
+          "this server has no mempool index".to_string(),
+        ));
+      }
+
+      let (inscriptions, more) = index.get_mempool_inscriptions_paginated(100, page_index)?;
+
+      Ok(if accept_json {
+        Json(api::MempoolInscriptions {
+          inscriptions,
+          more,
+          page_index,
+        })
+        .into_response()
+      } else {
+        MempoolInscriptionsHtml {
+          inscriptions,
+          next: more.then_some(page_index + 1),
+          now: Utc::now().timestamp(),
+          prev: page_index.checked_sub(1),
+        }
+        .page(server_config)
+        .into_response()
       })
     })
   }
@@ -2453,6 +2527,10 @@ mod tests {
       self.ord_flag("--index-addresses")
     }
 
+    fn index_mempool(self) -> Self {
+      self.ord_flag("--index-mempool")
+    }
+
     fn index_runes(self) -> Self {
       self.ord_flag("--index-runes")
     }
@@ -2546,12 +2624,19 @@ mod tests {
       if let Err(error) = self.index.update() {
         log::error!("{error}");
       }
+      if let Err(error) = self.index.update_mempool() {
+        log::error!("{error}");
+      }
       reqwest::blocking::get(self.join_url(path.as_ref())).unwrap()
     }
 
     #[track_caller]
     pub(crate) fn get_json<T: DeserializeOwned>(&self, path: impl AsRef<str>) -> T {
       if let Err(error) = self.index.update() {
+        log::error!("{error}");
+      }
+
+      if let Err(error) = self.index.update_mempool() {
         log::error!("{error}");
       }
 
@@ -3946,6 +4031,8 @@ mod tests {
   <dd>false</dd>
   <dt>inscription index</dt>
   <dd>true</dd>
+  <dt>mempool index</dt>
+  <dd>false</dd>
   <dt>rune index</dt>
   <dd>false</dd>
   <dt>sat index</dt>
@@ -9608,5 +9695,101 @@ next
       StatusCode::BAD_REQUEST,
       "outpoint 0000000000000000000000000000000000000000000000000000000000000000:0 may not be queried in batch",
     );
+  }
+
+  #[test]
+  fn mempool_inscriptions_require_mempool_index() {
+    TestServer::new().assert_response(
+      "/mempool/inscriptions",
+      StatusCode::NOT_FOUND,
+      "this server has no mempool index",
+    );
+  }
+
+  #[test]
+  fn mempool_inscriptions_json() {
+    let server = TestServer::builder().index_mempool().build();
+
+    server.mine_blocks(1);
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(
+        1,
+        0,
+        0,
+        inscription("text/plain", "840000.bitmap").to_witness(),
+      )],
+      ..default()
+    });
+
+    let response = server.get_json::<api::MempoolInscriptions>("/mempool/inscriptions");
+
+    assert_eq!(
+      response
+        .inscriptions
+        .iter()
+        .map(|inscription| inscription.id)
+        .collect::<Vec<InscriptionId>>(),
+      [InscriptionId { txid, index: 0 }]
+    );
+    assert!(!response.more);
+    assert_eq!(response.page_index, 0);
+
+    let response = server.get_json::<api::MempoolInscriptions>("/mempool/inscriptions/1");
+
+    assert!(response.inscriptions.is_empty());
+    assert_eq!(response.page_index, 1);
+
+    server.mine_blocks(1);
+
+    assert!(
+      server
+        .get_json::<api::MempoolInscriptions>("/mempool/inscriptions")
+        .inscriptions
+        .is_empty()
+    );
+  }
+
+  #[test]
+  fn mempool_inscriptions_html() {
+    let server = TestServer::builder().index_mempool().build();
+
+    server.mine_blocks(1);
+
+    let txid = server.core.broadcast_tx(TransactionTemplate {
+      inputs: &[(
+        1,
+        0,
+        0,
+        inscription("text/plain", "840000.bitmap").to_witness(),
+      )],
+      ..default()
+    });
+
+    server.assert_response_regex(
+      "/mempool/inscriptions",
+      StatusCode::OK,
+      format!(
+        r".*<title>Mempool Inscriptions</title>.*<td><a class=collapse href=/tx/{txid}>{txid}i0</a></td>\s*<td>text/plain</td>\s*<td>13</td>.*"
+      ),
+    );
+
+    server.assert_response_regex(
+      "/mempool/inscriptions/1",
+      StatusCode::OK,
+      r".*<a class=prev href=/mempool/inscriptions/0>prev</a>\s*next.*",
+    );
+  }
+
+  #[test]
+  fn status_shows_mempool_index() {
+    TestServer::builder()
+      .index_mempool()
+      .build()
+      .assert_response_regex(
+        "/status",
+        StatusCode::OK,
+        ".*<dt>mempool index</dt>\n  <dd>true</dd>.*",
+      );
   }
 }

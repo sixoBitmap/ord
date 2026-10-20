@@ -56,6 +56,11 @@ pub struct Options {
     help = "Set index cache size to <INDEX_CACHE_SIZE> bytes. [default: 1/4 available RAM]"
   )]
   pub(crate) index_cache_size: Option<usize>,
+  #[arg(
+    long,
+    help = "Track unconfirmed transactions in Bitcoin Core's mempool. Kept in memory, not in the index."
+  )]
+  pub(crate) index_mempool: bool,
   #[arg(long, help = "Track location of runes.")]
   pub(crate) index_runes: bool,
   #[arg(long, help = "Track location of all satoshis.")]

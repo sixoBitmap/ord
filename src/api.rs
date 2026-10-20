@@ -167,6 +167,27 @@ pub struct Inscriptions {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct MempoolInscription {
+  pub content_encoding: Option<String>,
+  pub content_length: Option<usize>,
+  pub content_type: Option<String>,
+  pub delegate: Option<InscriptionId>,
+  pub fee: u64,
+  pub fee_rate: f64,
+  pub id: InscriptionId,
+  pub metaprotocol: Option<String>,
+  pub parents: Vec<InscriptionId>,
+  pub timestamp: i64,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct MempoolInscriptions {
+  pub inscriptions: Vec<MempoolInscription>,
+  pub more: bool,
+  pub page_index: u32,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct UtxoRecursive {
   pub inscriptions: Option<Vec<InscriptionId>>,
   pub runes: Option<BTreeMap<SpacedRune, Pile>>,

@@ -756,11 +756,78 @@ impl Api for Server {
         None => Err(Self::not_found()),
       }
     } else {
-      match state.transactions.get(&txid) {
+      match state
+        .transactions
+        .get(&txid)
+        .or_else(|| state.mempool.iter().find(|tx| tx.compute_txid() == txid))
+      {
         Some(tx) => Ok(Value::String(hex::encode(serialize(tx)))),
         None => Err(Self::not_found()),
       }
     }
+  }
+
+  fn get_mempool_entry(&self, txid: Txid) -> Result<GetMempoolEntryResult, jsonrpc_core::Error> {
+    let state = self.state();
+
+    let Some((position, tx)) = state
+      .mempool
+      .iter()
+      .enumerate()
+      .find(|(_, tx)| tx.compute_txid() == txid)
+    else {
+      return Err(jsonrpc_core::Error {
+        code: jsonrpc_core::types::error::ErrorCode::ServerError(-5),
+        message: "Transaction not in mempool".into(),
+        data: None,
+      });
+    };
+
+    let fee = tx
+      .input
+      .iter()
+      .map(|txin| {
+        state.transactions[&txin.previous_output.txid].output
+          [usize::try_from(txin.previous_output.vout).unwrap()]
+        .value
+      })
+      .sum::<Amount>()
+      - tx.output.iter().map(|txout| txout.value).sum::<Amount>();
+
+    let vsize = u64::try_from(tx.vsize()).unwrap();
+
+    Ok(GetMempoolEntryResult {
+      vsize,
+      weight: Some(tx.weight().to_wu()),
+      time: u64::try_from(position).unwrap(),
+      height: u64::try_from(state.hashes.len() - 1).unwrap(),
+      descendant_count: 1,
+      descendant_size: vsize,
+      ancestor_count: 1,
+      ancestor_size: vsize,
+      wtxid: Txid::from_raw_hash(tx.compute_wtxid().to_raw_hash()),
+      fees: GetMempoolEntryResultFees {
+        base: fee,
+        modified: fee,
+        ancestor: fee,
+        descendant: fee,
+      },
+      depends: Vec::new(),
+      spent_by: Vec::new(),
+      bip125_replaceable: true,
+      unbroadcast: Some(false),
+    })
+  }
+
+  fn get_raw_mempool(&self) -> Result<Vec<Txid>, jsonrpc_core::Error> {
+    Ok(
+      self
+        .state()
+        .mempool
+        .iter()
+        .map(Transaction::compute_txid)
+        .collect(),
+    )
   }
 
   fn list_unspent(

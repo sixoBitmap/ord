@@ -117,6 +117,12 @@ pub trait Api {
     include_watchonly: Option<bool>,
   ) -> Result<Value, jsonrpc_core::Error>;
 
+  #[rpc(name = "getmempoolentry")]
+  fn get_mempool_entry(&self, txid: Txid) -> Result<GetMempoolEntryResult, jsonrpc_core::Error>;
+
+  #[rpc(name = "getrawmempool")]
+  fn get_raw_mempool(&self) -> Result<Vec<Txid>, jsonrpc_core::Error>;
+
   #[rpc(name = "getrawtransaction")]
   fn get_raw_transaction(
     &self,

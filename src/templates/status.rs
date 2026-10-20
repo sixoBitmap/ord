@@ -12,6 +12,7 @@ pub struct StatusHtml {
   pub inscriptions: u64,
   pub json_api: bool,
   pub lost_sats: u64,
+  pub mempool_index: bool,
   pub minimum_rune_for_next_block: Rune,
   pub rune_index: bool,
   pub runes: u64,

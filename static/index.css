@@ -312,3 +312,30 @@ a.mythic {
 h1:has(+ .subtitle) {
   margin-bottom: 0;
 }
+
+table.mempool-inscriptions {
+  table-layout: fixed;
+  width: 100%;
+}
+
+table.mempool-inscriptions td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+table.mempool-inscriptions th:nth-child(1) {
+  width: 44%;
+}
+
+table.mempool-inscriptions th:nth-child(2) {
+  width: 24%;
+}
+
+table.mempool-inscriptions th:nth-child(3) {
+  width: 8%;
+}
+
+table.mempool-inscriptions th:nth-child(4) {
+  width: 14%;
+}

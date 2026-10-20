@@ -1917,6 +1917,80 @@ See [wallet.md](wallet.md#installing-ord)
 </details>
 
 <details>
+  <summary>
+    <code>GET</code>
+    <code><b>/mempool/inscriptions</b></code>
+  </summary>
+
+### Description
+
+Inscriptions revealed by transactions in Bitcoin Core's mempool, newest first,
+100 per page. Requires `--index-mempool`. The mempool is that of the Bitcoin
+Core node `ord` is connected to, and it is kept in memory, not in the index.
+
+`fee` is the inscription's share of its transaction's fee, as for
+`/inscription`, `fee_rate` is the transaction's fee rate in sat/vB, and
+`timestamp` is when Bitcoin Core accepted the transaction. Pending inscriptions
+have no number or sat yet, and their content can be read with
+`/decode/<TRANSACTION_ID>`.
+
+### Example
+
+```bash
+curl -s -H "Accept: application/json" \
+  http://0.0.0.0/mempool/inscriptions
+```
+
+```json
+{
+  "inscriptions": [
+    {
+      "content_encoding": null,
+      "content_length": 13,
+      "content_type": "text/plain",
+      "delegate": null,
+      "fee": 168,
+      "fee_rate": 1.0,
+      "id": "e9fc9f282697a9ea99e20ecac222a4388bfb6b387a02f8c6ede54cfd71f0d995i0",
+      "metaprotocol": null,
+      "parents": [],
+      "timestamp": 1792443433
+    }
+  ],
+  "more": true,
+  "page_index": 0
+}
+```
+</details>
+
+<details>
+  <summary>
+    <code>GET</code>
+    <code><b>/mempool/inscriptions/&lt;PAGE&gt;</b></code>
+  </summary>
+
+### Description
+
+Pagination allows you to choose which page of `/mempool/inscriptions` to
+return.
+
+### Example
+
+```bash
+curl -s -H "Accept: application/json" \
+  http://0.0.0.0/mempool/inscriptions/1
+```
+
+```json
+{
+  "inscriptions": [],
+  "more": false,
+  "page_index": 1
+}
+```
+</details>
+
+<details>
  <summary>
     <code>POST</code>
     <code><b>/offer</b></code>
@@ -5233,6 +5307,7 @@ curl -s -H "Accept: application/json" \
   },
   "inscriptions": 76804684,
   "lost_sats": 0,
+  "mempool_index": false,
   "minimum_rune_for_next_block": "PVHGFEDCAZZ",
   "rune_index": true,
   "runes": 119811,

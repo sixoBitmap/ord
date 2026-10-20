@@ -638,6 +638,7 @@ fn get_status() {
       inscriptions: 1,
       json_api: true,
       lost_sats: 0,
+      mempool_index: false,
       minimum_rune_for_next_block: Rune(99218849511960410),
       rune_index: true,
       runes: 0,
